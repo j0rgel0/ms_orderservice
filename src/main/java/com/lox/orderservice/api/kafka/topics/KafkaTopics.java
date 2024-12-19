@@ -23,7 +23,7 @@ public class KafkaTopics {
      */
     @Bean
     public NewTopic orderEventsTopic() {
-        return kafkaConfig.createTopic(ORDER_EVENTS, 0, (short) 0);
+        return kafkaConfig.createTopic(ORDER_EVENTS, 3, (short) 1);
     }
 
     /**
@@ -33,7 +33,7 @@ public class KafkaTopics {
      */
     @Bean
     public NewTopic inventoryEventsTopic() {
-        return kafkaConfig.createTopic(INVENTORY_EVENTS, 0, (short) 0);
+        return kafkaConfig.createTopic(INVENTORY_EVENTS, 3, (short) 1);
     }
 
     /**
@@ -43,6 +43,6 @@ public class KafkaTopics {
      */
     @Bean
     public NewTopic paymentEventsTopic() {
-        return kafkaConfig.createTopic(PAYMENT_EVENTS, 0, (short) 0);
+        return kafkaConfig.createTopic(PAYMENT_EVENTS, 3, (short) 1);
     }
 }
