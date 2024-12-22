@@ -1,23 +1,29 @@
 package com.lox.orderservice.api.kafka.events;
 
-import com.lox.orderservice.api.models.Order;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.lox.orderservice.api.models.dto.ReservedItemEvent;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * ReserveInventoryCommand is an event
+ * that instructs the inventory service to reserve items for a given order.
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class ReserveInventoryCommand implements Event {
 
-    private String eventType;
-    private UUID orderId;
-    private UUID productId;
-    private int quantity;
+    private String eventType;          // e.g. "RESERVE_INVENTORY_COMMAND"
+    private UUID trackId;             // correlation/tracking ID
+    private UUID orderId;             // order to be reserved
+    private List<ReservedItemEvent> items;
     private Instant timestamp;
 
     @Override
@@ -31,17 +37,8 @@ public class ReserveInventoryCommand implements Event {
     }
 
     @Override
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     public Instant getTimestamp() {
         return timestamp;
-    }
-
-    public static ReserveInventoryCommand fromOrder(Order order) {
-        return ReserveInventoryCommand.builder()
-                .eventType(EventType.RESERVE_INVENTORY_COMMAND.name())
-                .orderId(order.getOrderId())
-                .productId(order.getItems().getFirst().getProductId())
-                .quantity(order.getItems().getFirst().getQuantity())
-                .timestamp(Instant.now())
-                .build();
     }
 }

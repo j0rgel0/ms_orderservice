@@ -1,6 +1,5 @@
 package com.lox.orderservice.api.models.dto;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,5 +15,4 @@ public class OrderItemResponse {
     private UUID orderItemId;
     private UUID productId;
     private int quantity;
-    private BigDecimal price;
 }

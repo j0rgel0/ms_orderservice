@@ -1,22 +1,28 @@
-package com.lox.orderservice.api.kafka.events;
+package com.lox.orderservice.api.models.dto;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
-import com.lox.orderservice.api.models.Order;
+import com.lox.orderservice.api.kafka.events.Event;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Command to instruct inventory to reserve items for a given order,
+ * but without 'orderTotal', 'unitPrice', or 'totalPrice'.
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class OrderRemovedEvent implements Event {
+public class ReserveInventoryCommand implements Event {
 
     private String eventType;
+    private UUID trackId;
     private UUID orderId;
+    private List<ReservedItemEvent> items;
     private Instant timestamp;
 
     @Override
@@ -30,9 +36,7 @@ public class OrderRemovedEvent implements Event {
     }
 
     @Override
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     public Instant getTimestamp() {
         return timestamp;
     }
-
 }

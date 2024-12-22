@@ -36,12 +36,4 @@ public class OrderUpdatedEvent implements Event {
         return timestamp;
     }
 
-    public static OrderUpdatedEvent fromOrder(Order order) {
-        return OrderUpdatedEvent.builder()
-                .eventType(EventType.ORDER_UPDATED.name())
-                .orderId(order.getOrderId())
-                .status(order.getStatus().name())
-                .timestamp(Instant.now())
-                .build();
-    }
 }

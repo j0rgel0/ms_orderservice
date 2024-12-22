@@ -1,8 +1,7 @@
 package com.lox.orderservice.api.kafka.events;
 
-import com.lox.orderservice.api.models.Order;
-import com.lox.orderservice.api.models.dto.ReservedItemEvent;
-import java.math.BigDecimal;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.lox.orderservice.api.models.OrderItem;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -20,10 +19,15 @@ public class InitiatePaymentCommand implements Event {
     private String eventType;
     private UUID trackId;
     private UUID orderId;
-    private List<ReservedItemEvent> items;
-    private BigDecimal totalAmount;
-    private Double orderTotal;
-    private Instant timestamp;
+    private UUID userId;
+    private Double totalAmount;
+    private String currency;
+    private String status;
+    private Instant createdAt;
+    private Instant updatedAt;
+
+    private List<OrderItemEvent> items;
+    private String cancellationReason;
 
     @Override
     public String getEventType() {
@@ -36,8 +40,19 @@ public class InitiatePaymentCommand implements Event {
     }
 
     @Override
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     public Instant getTimestamp() {
         return timestamp;
     }
 
+    private Instant timestamp;
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class OrderItemEvent {
+
+        private UUID productId;
+        private int quantity;
+    }
 }

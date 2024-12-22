@@ -1,8 +1,9 @@
-package com.lox.orderservice.api.kafka.events;
+package com.lox.orderservice.api.models.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.lox.orderservice.api.kafka.events.Event;
 import com.lox.orderservice.api.models.OrderItem;
-import com.lox.orderservice.api.models.dto.OrderItemResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -23,9 +24,16 @@ public class OrderCreatedEvent implements Event {
     private UUID userId;
     private String currency;
     private String status;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     private Instant createdAt;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     private Instant updatedAt;
+
     private List<OrderItem> items;
+
+    @JsonIgnore
     private String cancellationReason;
 
     @Override
@@ -45,5 +53,4 @@ public class OrderCreatedEvent implements Event {
     }
 
     private Instant timestamp;
-
 }

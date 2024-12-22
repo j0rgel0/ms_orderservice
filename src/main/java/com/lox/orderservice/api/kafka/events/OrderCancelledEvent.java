@@ -36,12 +36,4 @@ public class OrderCancelledEvent implements Event {
         return timestamp;
     }
 
-    public static OrderCancelledEvent fromOrder(Order order, String reason) {
-        return OrderCancelledEvent.builder()
-                .eventType(EventType.ORDER_CANCELLED.name())
-                .orderId(order.getOrderId())
-                .reason(reason)
-                .timestamp(Instant.now())
-                .build();
-    }
 }

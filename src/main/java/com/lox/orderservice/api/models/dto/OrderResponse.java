@@ -1,5 +1,6 @@
 package com.lox.orderservice.api.models.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -19,7 +20,6 @@ public class OrderResponse {
     private UUID trackId;
     private UUID orderId;
     private UUID userId;
-    private BigDecimal totalAmount = BigDecimal.ZERO;
     private String currency;
     private String status;
     private Instant createdAt;

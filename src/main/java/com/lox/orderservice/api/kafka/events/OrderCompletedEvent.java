@@ -35,11 +35,4 @@ public class OrderCompletedEvent implements Event {
         return timestamp;
     }
 
-    public static OrderCompletedEvent fromOrder(Order order) {
-        return OrderCompletedEvent.builder()
-                .eventType(EventType.ORDER_COMPLETED.name())
-                .orderId(order.getOrderId())
-                .timestamp(Instant.now())
-                .build();
-    }
 }

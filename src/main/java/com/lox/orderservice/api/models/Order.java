@@ -1,5 +1,7 @@
 package com.lox.orderservice.api.models;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -31,6 +33,7 @@ public class Order {
     private UUID userId;
 
     @Column("total_amount")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private BigDecimal totalAmount;
 
     @Column("currency")
@@ -40,6 +43,7 @@ public class Order {
     private OrderStatus status;
 
     @Column("cancellation_reason")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private CancellationReason cancellationReason;
 
     @Column("created_at")
@@ -50,4 +54,15 @@ public class Order {
 
     @Transient
     private List<OrderItem> items;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
 }
