@@ -1,7 +1,7 @@
 package com.lox.orderservice.api.kafka.events;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import com.lox.orderservice.api.models.OrderItem;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -20,7 +20,7 @@ public class InitiatePaymentCommand implements Event {
     private UUID trackId;
     private UUID orderId;
     private UUID userId;
-    private Double totalAmount;
+    private BigDecimal totalAmount;
     private String currency;
     private String status;
     private Instant createdAt;

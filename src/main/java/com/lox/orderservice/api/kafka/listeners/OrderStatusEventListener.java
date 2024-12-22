@@ -1,6 +1,5 @@
 package com.lox.orderservice.api.kafka.listeners;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lox.orderservice.api.services.OrderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
