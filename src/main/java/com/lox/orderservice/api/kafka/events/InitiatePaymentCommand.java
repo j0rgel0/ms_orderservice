@@ -1,8 +1,10 @@
 package com.lox.orderservice.api.kafka.events;
 
 import com.lox.orderservice.api.models.Order;
+import com.lox.orderservice.api.models.dto.ReservedItemEvent;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,8 +18,11 @@ import lombok.NoArgsConstructor;
 public class InitiatePaymentCommand implements Event {
 
     private String eventType;
+    private UUID trackId;
     private UUID orderId;
+    private List<ReservedItemEvent> items;
     private BigDecimal totalAmount;
+    private Double orderTotal;
     private Instant timestamp;
 
     @Override
@@ -35,12 +40,4 @@ public class InitiatePaymentCommand implements Event {
         return timestamp;
     }
 
-    public static InitiatePaymentCommand fromOrder(Order order) {
-        return InitiatePaymentCommand.builder()
-                .eventType(EventType.INITIATE_PAYMENT_COMMAND.name())
-                .orderId(order.getOrderId())
-                .totalAmount(order.getTotalAmount())
-                .timestamp(Instant.now())
-                .build();
-    }
 }

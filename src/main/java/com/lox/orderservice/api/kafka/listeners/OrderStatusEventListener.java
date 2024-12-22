@@ -18,6 +18,13 @@ public class OrderStatusEventListener {
 
     @KafkaListener(topics = "order.status.events", groupId = "order-service-group")
     public void listenOrderStatusEvents(String message) {
+        log.info("order.status.events - Received inventory event: {}", message);
+        Mono<Void> result = orderService.handleOrderStatusEvent(message);
+        result.subscribe();
+    }
+    @KafkaListener(topics = "inventory.events", groupId = "order-service-group")
+    public void listenInventoryEvents(String message) {
+        log.info("inventory.events - Received inventory event: {}", message);
         Mono<Void> result = orderService.handleOrderStatusEvent(message);
         result.subscribe();
     }
