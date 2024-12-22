@@ -36,12 +36,6 @@ public class OrderUpdatedEvent implements Event {
         return timestamp;
     }
 
-    /**
-     * Creates an OrderUpdatedEvent from an Order entity.
-     *
-     * @param order The Order entity.
-     * @return An OrderUpdatedEvent instance.
-     */
     public static OrderUpdatedEvent fromOrder(Order order) {
         return OrderUpdatedEvent.builder()
                 .eventType(EventType.ORDER_UPDATED.name())

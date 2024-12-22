@@ -24,6 +24,9 @@ public class Order {
     @Column("order_id")
     private UUID orderId;
 
+    @Column("track_id")
+    private UUID trackId;
+
     @Column("user_id")
     private UUID userId;
 
@@ -36,13 +39,15 @@ public class Order {
     @Column("status")
     private OrderStatus status;
 
+    @Column("cancellation_reason")
+    private CancellationReason cancellationReason;
+
     @Column("created_at")
     private Instant createdAt;
 
     @Column("updated_at")
     private Instant updatedAt;
 
-    // Relación uno a muchos con OrderItem
     @Transient
     private List<OrderItem> items;
 }

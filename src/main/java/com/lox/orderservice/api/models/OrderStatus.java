@@ -1,8 +1,8 @@
 package com.lox.orderservice.api.models;
 
 public enum OrderStatus {
-    CREATED,
-    RESERVED,
-    COMPLETED,
-    CANCELLED
+    ORDER_CREATED,
+    ORDER_RESERVED,
+    ORDER_COMPLETED,
+    ORDER_CANCELLED
 }

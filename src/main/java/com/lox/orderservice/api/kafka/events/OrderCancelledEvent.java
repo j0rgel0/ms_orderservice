@@ -17,8 +17,7 @@ public class OrderCancelledEvent implements Event {
 
     private String eventType;
     private UUID orderId;
-    private String status;
-    private String failureReason;
+    private String reason;
     private Instant timestamp;
 
     @Override
@@ -37,19 +36,11 @@ public class OrderCancelledEvent implements Event {
         return timestamp;
     }
 
-    /**
-     * Creates an OrderCancelledEvent from an Order entity.
-     *
-     * @param order         The Order entity.
-     * @param failureReason The reason for cancellation.
-     * @return An OrderCancelledEvent instance.
-     */
-    public static OrderCancelledEvent fromOrder(Order order, String failureReason) {
+    public static OrderCancelledEvent fromOrder(Order order, String reason) {
         return OrderCancelledEvent.builder()
                 .eventType(EventType.ORDER_CANCELLED.name())
                 .orderId(order.getOrderId())
-                .status(order.getStatus().name())
-                .failureReason(failureReason)
+                .reason(reason)
                 .timestamp(Instant.now())
                 .build();
     }

@@ -35,12 +35,6 @@ public class OrderRemovedEvent implements Event {
         return timestamp;
     }
 
-    /**
-     * Creates an OrderRemovedEvent from an Order entity.
-     *
-     * @param order The Order entity.
-     * @return An OrderRemovedEvent instance.
-     */
     public static OrderRemovedEvent fromOrder(Order order) {
         return OrderRemovedEvent.builder()
                 .eventType(EventType.ORDER_REMOVED.name())

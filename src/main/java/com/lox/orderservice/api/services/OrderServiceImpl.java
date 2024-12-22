@@ -1,35 +1,33 @@
+// OrderServiceImpl.java
 package com.lox.orderservice.api.services;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.lox.orderservice.api.dto.OrderRequest;
-import com.lox.orderservice.api.dto.OrderResponse;
 import com.lox.orderservice.api.exceptions.InvalidOrderStatusException;
 import com.lox.orderservice.api.exceptions.OrderNotFoundException;
 import com.lox.orderservice.api.kafka.events.Event;
 import com.lox.orderservice.api.kafka.events.EventType;
-import com.lox.orderservice.api.kafka.events.InventoryReleasedEvent;
-import com.lox.orderservice.api.kafka.events.InventoryReservedEvent;
+import com.lox.orderservice.api.kafka.events.InitiatePaymentCommand;
 import com.lox.orderservice.api.kafka.events.OrderCancelledEvent;
 import com.lox.orderservice.api.kafka.events.OrderCompletedEvent;
 import com.lox.orderservice.api.kafka.events.OrderCreatedEvent;
 import com.lox.orderservice.api.kafka.events.OrderRemovedEvent;
 import com.lox.orderservice.api.kafka.events.OrderUpdatedEvent;
-import com.lox.orderservice.api.kafka.events.PaymentCancelledEvent;
-import com.lox.orderservice.api.kafka.events.PaymentInitiatedEvent;
+import com.lox.orderservice.api.kafka.events.ReleaseInventoryCommand;
 import com.lox.orderservice.api.kafka.topics.KafkaTopics;
 import com.lox.orderservice.api.mappers.OrderMapper;
 import com.lox.orderservice.api.models.Order;
 import com.lox.orderservice.api.models.OrderItem;
 import com.lox.orderservice.api.models.OrderPage;
 import com.lox.orderservice.api.models.OrderStatus;
+import com.lox.orderservice.api.models.dto.OrderRequest;
+import com.lox.orderservice.api.models.dto.OrderResponse;
 import com.lox.orderservice.api.repositories.r2dbc.OrderItemRepository;
 import com.lox.orderservice.api.repositories.r2dbc.OrderRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.mapstruct.factory.Mappers;
@@ -55,389 +53,292 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public Mono<OrderResponse> createOrder(OrderRequest orderRequest) {
-        log.info("Creating order with request: {}", orderRequest);
+        log.debug("Creating order for userId: {}", orderRequest.getUserId());
 
-        // Calculate the total amount
-        BigDecimal totalAmount = orderRequest.getItems().stream()
-                .map(item -> item.getPrice().multiply(new BigDecimal(item.getQuantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        log.info("Total amount calculated: {}", totalAmount);
+        BigDecimal totalAmount = BigDecimal.ZERO;
 
-        // Map OrderItemRequest to OrderItem
+        // Generate trackId in the service layer
+        UUID trackId = UUID.randomUUID();
+
+        // Create OrderItems without prices
         List<OrderItem> orderItems = orderRequest.getItems().stream()
                 .map(itemRequest -> OrderItem.builder()
                         .productId(itemRequest.getProductId())
                         .quantity(itemRequest.getQuantity())
-                        .price(itemRequest.getPrice())
+                        .price(BigDecimal.ZERO) // Price managed internally
                         .createdAt(Instant.now())
                         .updatedAt(Instant.now())
                         .build())
-                .collect(Collectors.toList());
-        log.info("Mapped OrderItems: {}", orderItems);
+                .toList();
 
-        // Create Order entity without items
+        // Create the order with trackId
         Order order = Order.builder()
                 .userId(orderRequest.getUserId())
+                .trackId(trackId) // Assign trackId here
                 .totalAmount(totalAmount)
                 .currency(orderRequest.getCurrency())
-                .status(OrderStatus.CREATED)
+                .status(OrderStatus.ORDER_CREATED)
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
                 .build();
-        log.info("Order entity created: {}", order);
 
+        // Save the order to the database
         return orderRepository.save(order)
-                .doOnSuccess(savedOrder -> log.info("Order saved to repository: {}", savedOrder))
                 .flatMap(savedOrder -> {
+                    log.debug("Order saved with orderId: {}", savedOrder.getOrderId());
+
                     // Assign orderId to each OrderItem
                     orderItems.forEach(item -> item.setOrderId(savedOrder.getOrderId()));
-                    log.info("Setting orderId in OrderItems: {}", orderItems);
 
-                    // Save all OrderItems
+                    // Save OrderItems
                     return orderItemRepository.saveAll(orderItems)
                             .collectList()
-                            .doOnNext(savedItems -> log.info("OrderItems saved: {}", savedItems))
-                            .then(
-                                    // Emit events
-                                    emitEvents(
-                                            OrderCreatedEvent.fromOrder(savedOrder),
-                                            InventoryReservedEvent.fromOrder(savedOrder),
-                                            PaymentInitiatedEvent.fromOrder(savedOrder)
-                                    )
-                                            .doOnSuccess(aVoid -> log.info(
-                                                    "All events emitted successfully for order ID: {}",
-                                                    savedOrder.getOrderId()))
-                                            .doOnError(error -> log.error(
-                                                    "Error emitting events for order ID {}: {}",
-                                                    savedOrder.getOrderId(), error.getMessage()))
-                                            .thenReturn(orderMapper.toOrderResponse(savedOrder))
-                            );
+                            .flatMap(savedOrderItems -> {
+                                log.debug("OrderItems saved: {}", savedOrderItems);
+
+                                // Set the items list in the savedOrder
+                                savedOrder.setItems(savedOrderItems);
+
+                                // Emit the OrderCreatedEvent
+                                return emitEvent(OrderCreatedEvent.fromOrder(savedOrder))
+                                        .then(Mono.defer(() -> {
+                                            OrderResponse response = orderMapper.toOrderResponse(savedOrder);
+                                            log.debug("OrderResponse generated: {}", response);
+                                            return Mono.just(response);
+                                        }));
+                            });
                 })
-                .doOnSuccess(
-                        orderResponse -> log.info("Order created successfully: {}", orderResponse))
-                .doOnError(error -> log.error("Error creating order: {}", error.getMessage()));
+                .onErrorResume(e -> {
+                    log.error("Error creating order for userId: {}", orderRequest.getUserId(), e);
+                    return Mono.error(new RuntimeException("Error creating order", e));
+                });
     }
 
     @Override
     public Mono<OrderResponse> getOrderById(UUID orderId) {
-        log.info("Retrieving order with ID: {}", orderId);
         return orderRepository.findById(orderId)
-                .doOnSuccess(order -> {
-                    if (order != null) {
-                        log.info("Order found: {}", order);
-                    }
-                })
                 .switchIfEmpty(Mono.error(
                         new OrderNotFoundException("Order not found with ID: " + orderId)))
-                .flatMap(order -> {
-                    // Retrieve associated OrderItems
-                    return orderItemRepository.findByOrderId(orderId)
-                            .collectList()
-                            .map(items -> {
-                                order.setItems(items);
-                                return order;
-                            });
-                })
-                .map(orderMapper::toOrderResponse)
-                .doOnSuccess(orderResponse -> log.info("Order retrieved successfully: {}",
-                        orderResponse))
-                .doOnError(error -> log.error("Error retrieving order with ID {}: {}", orderId,
-                        error.getMessage()));
+                .flatMap(order -> orderItemRepository.findByOrderId(orderId)
+                        .collectList()
+                        .map(items -> {
+                            order.setItems(items);
+                            return order;
+                        }))
+                .map(orderMapper::toOrderResponse);
     }
 
     @Override
     @Transactional
     public Mono<OrderResponse> updateOrderStatus(UUID orderId, String newStatus) {
-        log.info("Updating status of order ID {} to '{}'", orderId, newStatus);
         return orderRepository.findById(orderId)
-                .doOnSuccess(order -> {
-                    if (order != null) {
-                        log.info("Order found for update: {}", order);
-                    }
-                })
                 .switchIfEmpty(Mono.error(
                         new OrderNotFoundException("Order not found with ID: " + orderId)))
                 .flatMap(existingOrder -> {
                     OrderStatus updatedStatus;
                     try {
                         updatedStatus = OrderStatus.valueOf(newStatus.toUpperCase());
-                        log.info("Parsed new status: {}", updatedStatus);
                     } catch (IllegalArgumentException e) {
-                        log.error("Invalid order status provided: {}", newStatus);
                         return Mono.error(new InvalidOrderStatusException(
                                 "Invalid order status: " + newStatus));
                     }
-
                     existingOrder.setStatus(updatedStatus);
                     existingOrder.setUpdatedAt(Instant.now());
-                    log.info("Order status updated in entity: {}", existingOrder);
-
                     return orderRepository.save(existingOrder)
-                            .doOnSuccess(
-                                    updatedOrder -> log.info("Order saved with updated status: {}",
-                                            updatedOrder))
                             .flatMap(updatedOrder -> {
-                                // Emit OrderUpdatedEvent
                                 OrderUpdatedEvent orderUpdatedEvent = OrderUpdatedEvent.fromOrder(
                                         updatedOrder);
-                                log.info("Emitting OrderUpdatedEvent: {}", orderUpdatedEvent);
-
-                                if (updatedStatus == OrderStatus.CANCELLED) {
-                                    InventoryReleasedEvent inventoryReleasedEvent = InventoryReleasedEvent.fromOrder(
-                                            updatedOrder);
-                                    PaymentCancelledEvent paymentCancelledEvent = PaymentCancelledEvent.fromOrder(
-                                            updatedOrder);
-                                    log.info("Emitting InventoryReleasedEvent: {}",
-                                            inventoryReleasedEvent);
-                                    log.info("Emitting PaymentCancelledEvent: {}",
-                                            paymentCancelledEvent);
-                                    return emitEvents(orderUpdatedEvent, inventoryReleasedEvent,
-                                            paymentCancelledEvent)
-                                            .doOnSuccess(aVoid -> log.info(
-                                                    "All compensating events emitted for cancelled order ID: {}",
-                                                    orderId))
-                                            .doOnError(error -> log.error(
-                                                    "Error emitting compensating events for order ID {}: {}",
-                                                    orderId, error.getMessage()))
+                                if (updatedStatus == OrderStatus.ORDER_CANCELLED) {
+                                    // Here you should obtain the cancellation reason from some source,
+                                    // for example, from the event or the request.
+                                    // Let's assume it's passed as part of the newStatus JSON.
+                                    String reason = "Cancellation reason"; // Replace with actual logic
+                                    OrderCancelledEvent orderCancelledEvent = OrderCancelledEvent.builder()
+                                            .eventType(EventType.ORDER_CANCELLED.name())
+                                            .orderId(orderId)
+                                            .reason(reason)
+                                            .timestamp(Instant.now())
+                                            .build();
+                                    return emitEvents(orderUpdatedEvent, orderCancelledEvent)
                                             .thenReturn(orderMapper.toOrderResponse(updatedOrder));
                                 }
-
                                 return emitEvent(orderUpdatedEvent)
-                                        .doOnSuccess(aVoid -> log.info(
-                                                "OrderUpdatedEvent emitted for order ID: {}",
-                                                orderId))
-                                        .doOnError(error -> log.error(
-                                                "Error emitting OrderUpdatedEvent for order ID {}: {}",
-                                                orderId, error.getMessage()))
                                         .thenReturn(orderMapper.toOrderResponse(updatedOrder));
                             });
-                })
-                .doOnSuccess(orderResponse -> log.info("Order status updated successfully: {}",
-                        orderResponse))
-                .doOnError(error -> log.error("Error updating status of order ID {}: {}", orderId,
-                        error.getMessage()));
+                });
     }
 
     @Override
     @Transactional
     public Mono<Void> deleteOrder(UUID orderId) {
-        log.info("Deleting order with ID: {}", orderId);
         return orderRepository.findById(orderId)
-                .doOnSuccess(order -> {
-                    if (order != null) {
-                        log.info("Order found for deletion: {}", order);
-                    }
-                })
                 .switchIfEmpty(Mono.error(
                         new OrderNotFoundException("Order not found with ID: " + orderId)))
                 .flatMap(order -> orderRepository.delete(order)
-                        .doOnSuccess(
-                                aVoid -> log.info("Order deleted from repository: {}", orderId))
-                        .then(
-                                emitEvent(OrderRemovedEvent.fromOrder(order))
-                                        .doOnSuccess(aVoid -> log.info(
-                                                "OrderRemovedEvent emitted for order ID: {}",
-                                                orderId))
-                                        .doOnError(error -> log.error(
-                                                "Error emitting OrderRemovedEvent for order ID {}: {}",
-                                                orderId, error.getMessage()))
-                        )
-                )
-                .then()
-                .doOnSuccess(
-                        aVoid -> log.info("Order deletion process completed for ID: {}", orderId))
-                .doOnError(error -> log.error("Error deleting order with ID {}: {}", orderId,
-                        error.getMessage()));
+                        .then(emitEvent(OrderRemovedEvent.fromOrder(order))))
+                .then();
     }
 
     @Override
     public Mono<OrderPage> listOrders(String status, UUID userId, Instant startDate,
             Instant endDate, int page, int size) {
-        log.info(
-                "Listing orders with filters - Status: {}, UserID: {}, StartDate: {}, EndDate: {}, Page: {}, Size: {}",
-                status, userId, startDate, endDate, page, size);
-
         PageRequest pageRequest = PageRequest.of(page, size);
-        log.info("PageRequest created: {}", pageRequest);
-
-        return orderRepository.findOrdersByFilters(status, userId, startDate, endDate, pageRequest)
-                .flatMap(order -> {
-                    // Retrieve associated OrderItems
-                    return orderItemRepository.findByOrderId(order.getOrderId())
-                            .collectList()
-                            .map(items -> {
-                                order.setItems(items);
-                                return order;
-                            });
-                })
+        return orderRepository.findByStatusAndUserIdAndCreatedAtBetween(status, userId, startDate,
+                        endDate, pageRequest)
+                .flatMap(order -> orderItemRepository.findByOrderId(order.getOrderId())
+                        .collectList()
+                        .map(items -> {
+                            order.setItems(items);
+                            return order;
+                        }))
                 .map(orderMapper::toOrderResponse)
-                .doOnNext(
-                        orderResponse -> log.debug("Fetched order for listing: {}", orderResponse))
                 .collectList()
-                .zipWith(orderRepository.countOrdersByFilters(status, userId, startDate, endDate))
-                .map(tuple -> {
-                    OrderPage orderPage = OrderPage.builder()
-                            .orders(tuple.getT1())
-                            .totalElements(tuple.getT2())
-                            .totalPages((int) Math.ceil((double) tuple.getT2() / size))
-                            .currentPage(page)
-                            .build();
-                    log.info("OrderPage created: {}", orderPage);
-                    return orderPage;
-                })
-                .doOnSuccess(orderPage -> log.info("Orders listed successfully: {}", orderPage))
-                .doOnError(error -> log.error("Error listing orders: {}", error.getMessage()));
+                .zipWith(orderRepository.countByStatusAndUserIdAndCreatedAtBetween(status, userId,
+                        startDate, endDate))
+                .map(tuple -> OrderPage.builder()
+                        .orders(tuple.getT1())
+                        .totalElements(tuple.getT2())
+                        .totalPages((int) Math.ceil((double) tuple.getT2() / size))
+                        .currentPage(page)
+                        .build());
     }
-
 
     @Override
     @Transactional
-    public Mono<Void> handlePaymentCallback(String callbackPayload) {
-        log.info("Handling payment callback with payload: {}", callbackPayload);
+    public Mono<Void> handleOrderStatusEvent(String eventPayload) {
         try {
-            JsonNode jsonNode = objectMapper.readTree(callbackPayload);
-            UUID orderId = UUID.fromString(jsonNode.get("orderId").asText());
-            String status = jsonNode.get("status").asText();
-            String transactionId =
-                    jsonNode.has("transactionId") ? jsonNode.get("transactionId").asText() : null;
-            String failureReason =
-                    jsonNode.has("failureReason") ? jsonNode.get("failureReason").asText() : null;
-
-            log.info(
-                    "Parsed callback - OrderID: {}, Status: {}, TransactionID: {}, FailureReason: {}",
-                    orderId, status, transactionId, failureReason);
-
-            return orderRepository.findById(orderId)
-                    .doOnSuccess(order -> {
-                        if (order != null) {
-                            log.info("Order found for payment callback: {}", order);
-                        }
-                    })
-                    .switchIfEmpty(Mono.error(
-                            new OrderNotFoundException("Order not found with ID: " + orderId)))
-                    .flatMap(order -> {
-                        if ("COMPLETED".equalsIgnoreCase(status)) {
-                            order.setStatus(OrderStatus.COMPLETED);
-                            log.info("Order status set to COMPLETED for order ID: {}", orderId);
-                        } else if ("FAILED".equalsIgnoreCase(status)) {
-                            order.setStatus(OrderStatus.CANCELLED);
-                            log.info("Order status set to CANCELLED for order ID: {}", orderId);
-                        } else {
-                            log.error("Invalid status in callback: {}", status);
-                            return Mono.error(new InvalidOrderStatusException(
-                                    "Invalid status in callback: " + status));
-                        }
-                        order.setUpdatedAt(Instant.now());
-                        log.info("Order updated with new status: {}", order);
-
-                        return orderRepository.save(order)
-                                .doOnSuccess(updatedOrder -> log.info(
-                                        "Order saved after payment callback: {}", updatedOrder))
-                                .flatMap(updatedOrder -> {
-                                    if ("COMPLETED".equalsIgnoreCase(status)) {
-                                        OrderCompletedEvent orderCompletedEvent = OrderCompletedEvent.fromOrder(
-                                                updatedOrder);
-                                        log.info("Emitting OrderCompletedEvent: {}",
-                                                orderCompletedEvent);
-                                        return emitEvent(orderCompletedEvent)
-                                                .doOnSuccess(aVoid -> log.info(
-                                                        "OrderCompletedEvent emitted for order ID: {}",
-                                                        orderId))
-                                                .doOnError(error -> log.error(
-                                                        "Error emitting OrderCompletedEvent for order ID {}: {}",
-                                                        orderId, error.getMessage()));
-                                    } else if ("FAILED".equalsIgnoreCase(status)) {
-                                        OrderCancelledEvent orderCancelledEvent = OrderCancelledEvent.fromOrder(
-                                                updatedOrder, failureReason);
-                                        InventoryReleasedEvent inventoryReleasedEvent = InventoryReleasedEvent.fromOrder(
-                                                updatedOrder);
-                                        log.info("Emitting OrderCancelledEvent: {}",
-                                                orderCancelledEvent);
-                                        log.info("Emitting InventoryReleasedEvent: {}",
-                                                inventoryReleasedEvent);
-                                        return emitEvents(orderCancelledEvent,
-                                                inventoryReleasedEvent)
-                                                .doOnSuccess(aVoid -> log.info(
-                                                        "Compensating events emitted for failed payment of order ID: {}",
-                                                        orderId))
-                                                .doOnError(error -> log.error(
-                                                        "Error emitting compensating events for order ID {}: {}",
-                                                        orderId, error.getMessage()));
-                                    }
-                                    return Mono.empty();
-                                });
-                    })
-                    .then()
-                    .doOnSuccess(aVoid -> log.info(
-                            "Payment callback handled successfully for order ID: {}", orderId))
-                    .doOnError(error -> log.error("Error handling payment callback: {}",
-                            error.getMessage()));
+            JsonNode jsonNode = objectMapper.readTree(eventPayload);
+            String eventType = jsonNode.get("eventType").asText();
+            switch (eventType) {
+                case "INVENTORY_RESERVED":
+                    return handleInventoryReservedEvent(jsonNode);
+                case "INVENTORY_RESERVE_FAILED":
+                    return handleInventoryReserveFailedEvent(jsonNode);
+                case "PAYMENT_SUCCEEDED":
+                    return handlePaymentSucceededEvent(jsonNode);
+                case "PAYMENT_FAILED":
+                    return handlePaymentFailedEvent(jsonNode);
+                default:
+                    return Mono.empty();
+            }
         } catch (Exception e) {
-            log.error("Invalid callback payload: {}", callbackPayload, e);
-            return Mono.error(new RuntimeException("Invalid callback payload", e));
+            return Mono.error(new RuntimeException("Invalid event payload", e));
         }
     }
 
-    /**
-     * Emits multiple events to Kafka.
-     *
-     * @param events The events to emit.
-     * @return A Mono signaling completion.
-     */
-    private Mono<Void> emitEvents(Event... events) {
-        log.info("Emitting multiple events: {}", (Object[]) events);
-        return Flux.fromArray(events)
-                .flatMap(event -> {
-                    log.debug("Emitting event: {}", event);
-                    return emitEvent(event);
+    private Mono<Void> handleInventoryReservedEvent(JsonNode jsonNode) {
+        UUID orderId = UUID.fromString(jsonNode.get("orderId").asText());
+        return orderRepository.findById(orderId)
+                .switchIfEmpty(Mono.error(
+                        new OrderNotFoundException("Order not found with ID: " + orderId)))
+                .flatMap(order -> {
+                    InitiatePaymentCommand initiatePaymentCommand = InitiatePaymentCommand.builder()
+                            .eventType(EventType.INITIATE_PAYMENT_COMMAND.name())
+                            .orderId(orderId)
+                            .totalAmount(order.getTotalAmount())
+                            .timestamp(Instant.now())
+                            .build();
+                    return emitEvent(initiatePaymentCommand);
                 })
-                .then()
-                .doOnSuccess(aVoid -> log.info("All events emitted successfully"))
-                .doOnError(error -> log.error("Error emitting multiple events: {}",
-                        error.getMessage()));
+                .then();
     }
 
-    /**
-     * Emits a single event to Kafka.
-     *
-     * @param event The event to emit.
-     * @return A Mono signaling completion.
-     */
+    private Mono<Void> handleInventoryReserveFailedEvent(JsonNode jsonNode) {
+        UUID orderId = UUID.fromString(jsonNode.get("orderId").asText());
+        String reason = jsonNode.has("reason") ? jsonNode.get("reason").asText() : "Unknown";
+        return orderRepository.findById(orderId)
+                .switchIfEmpty(Mono.error(
+                        new OrderNotFoundException("Order not found with ID: " + orderId)))
+                .flatMap(order -> {
+                    order.setStatus(OrderStatus.ORDER_CANCELLED);
+                    order.setUpdatedAt(Instant.now());
+                    return orderRepository.save(order)
+                            .flatMap(savedOrder -> {
+                                OrderCancelledEvent orderCancelledEvent = OrderCancelledEvent.builder()
+                                        .eventType(EventType.ORDER_CANCELLED.name())
+                                        .orderId(orderId)
+                                        .reason(reason)
+                                        .timestamp(Instant.now())
+                                        .build();
+                                return emitEvent(orderCancelledEvent);
+                            });
+                })
+                .then();
+    }
+
+    private Mono<Void> handlePaymentSucceededEvent(JsonNode jsonNode) {
+        UUID orderId = UUID.fromString(jsonNode.get("orderId").asText());
+        return orderRepository.findById(orderId)
+                .switchIfEmpty(Mono.error(
+                        new OrderNotFoundException("Order not found with ID: " + orderId)))
+                .flatMap(order -> {
+                    order.setStatus(OrderStatus.ORDER_COMPLETED);
+                    order.setUpdatedAt(Instant.now());
+                    return orderRepository.save(order)
+                            .flatMap(savedOrder -> {
+                                OrderCompletedEvent orderCompletedEvent = OrderCompletedEvent.builder()
+                                        .eventType(EventType.ORDER_COMPLETED.name())
+                                        .orderId(orderId)
+                                        .timestamp(Instant.now())
+                                        .build();
+                                return emitEvent(orderCompletedEvent);
+                            });
+                })
+                .then();
+    }
+
+    private Mono<Void> handlePaymentFailedEvent(JsonNode jsonNode) {
+        UUID orderId = UUID.fromString(jsonNode.get("orderId").asText());
+        String reason = jsonNode.has("reason") ? jsonNode.get("reason").asText() : "Unknown";
+        return orderRepository.findById(orderId)
+                .switchIfEmpty(Mono.error(
+                        new OrderNotFoundException("Order not found with ID: " + orderId)))
+                .flatMap(order -> {
+                    order.setStatus(OrderStatus.ORDER_CANCELLED);
+                    order.setUpdatedAt(Instant.now());
+                    return orderRepository.save(order)
+                            .flatMap(savedOrder -> {
+                                OrderCancelledEvent orderCancelledEvent = OrderCancelledEvent.builder()
+                                        .eventType(EventType.ORDER_CANCELLED.name())
+                                        .orderId(orderId)
+                                        .reason(reason)
+                                        .timestamp(Instant.now())
+                                        .build();
+                                ReleaseInventoryCommand releaseInventoryCommand = ReleaseInventoryCommand.builder()
+                                        .eventType(EventType.RELEASE_INVENTORY_COMMAND.name())
+                                        .orderId(orderId)
+                                        .productId(savedOrder.getItems().getFirst().getProductId())
+                                        .quantity(savedOrder.getItems().getFirst().getQuantity())
+                                        .timestamp(Instant.now())
+                                        .build();
+                                return emitEvents(orderCancelledEvent, releaseInventoryCommand);
+                            });
+                })
+                .then();
+    }
+
+    private Mono<Void> emitEvents(Event... events) {
+        return Flux.fromArray(events)
+                .flatMap(this::emitEvent)
+                .then();
+    }
+
     private Mono<Void> emitEvent(Event event) {
         String topic = getTopicForEvent(event.getEventType());
-        log.info("Emitting event of type '{}' to topic '{}'", event.getEventType(), topic);
-
         SenderRecord<String, Object, String> record = SenderRecord.create(
                 new org.apache.kafka.clients.producer.ProducerRecord<>(topic, null, event),
                 event.getEventType()
         );
-
         return kafkaSender.send(Mono.just(record))
-                .doOnNext(senderResult -> log.debug("Event emitted with metadata: {}",
-                        senderResult.recordMetadata()))
-                .then()
-                .doOnSuccess(aVoid -> log.info("Event of type '{}' emitted successfully",
-                        event.getEventType()))
-                .doOnError(error -> log.error("Error emitting event of type '{}': {}",
-                        event.getEventType(), error.getMessage()));
+                .then();
     }
 
-    /**
-     * Retrieves the Kafka topic based on the event type.
-     *
-     * @param eventType The type of the event.
-     * @return The corresponding Kafka topic.
-     */
     private String getTopicForEvent(String eventType) {
         for (EventType type : EventType.values()) {
             if (type.name().equals(eventType)) {
-                log.debug("Found topic '{}' for event type '{}'", type.getTopic(), eventType);
                 return type.getTopic();
             }
         }
-        log.warn("Event type '{}' not found. Using default topic '{}'", eventType,
-                KafkaTopics.ORDER_EVENTS);
-        // Default topic if the event type is not found
         return KafkaTopics.ORDER_EVENTS;
     }
 }

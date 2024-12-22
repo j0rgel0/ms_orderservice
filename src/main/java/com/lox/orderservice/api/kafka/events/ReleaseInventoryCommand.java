@@ -1,6 +1,5 @@
 package com.lox.orderservice.api.kafka.events;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.lox.orderservice.api.models.Order;
 import java.time.Instant;
 import java.util.UUID;
@@ -13,10 +12,12 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class InventoryReleasedEvent implements Event {
+public class ReleaseInventoryCommand implements Event {
 
     private String eventType;
     private UUID orderId;
+    private UUID productId;
+    private int quantity;
     private Instant timestamp;
 
     @Override
@@ -30,21 +31,16 @@ public class InventoryReleasedEvent implements Event {
     }
 
     @Override
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     public Instant getTimestamp() {
         return timestamp;
     }
 
-    /**
-     * Creates an InventoryReleasedEvent from an Order entity.
-     *
-     * @param order The Order entity.
-     * @return An InventoryReleasedEvent instance.
-     */
-    public static InventoryReleasedEvent fromOrder(Order order) {
-        return InventoryReleasedEvent.builder()
-                .eventType(EventType.INVENTORY_RELEASED.name())
+    public static ReleaseInventoryCommand fromOrder(Order order) {
+        return ReleaseInventoryCommand.builder()
+                .eventType(EventType.RELEASE_INVENTORY_COMMAND.name())
                 .orderId(order.getOrderId())
+                .productId(order.getItems().getFirst().getProductId())
+                .quantity(order.getItems().getFirst().getQuantity())
                 .timestamp(Instant.now())
                 .build();
     }

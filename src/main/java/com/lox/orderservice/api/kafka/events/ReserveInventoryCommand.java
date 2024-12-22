@@ -1,6 +1,5 @@
 package com.lox.orderservice.api.kafka.events;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.lox.orderservice.api.models.Order;
 import java.time.Instant;
 import java.util.UUID;
@@ -13,12 +12,12 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PaymentInitiatedEvent implements Event {
+public class ReserveInventoryCommand implements Event {
 
     private String eventType;
     private UUID orderId;
-    private Double amount;
-    private String currency;
+    private UUID productId;
+    private int quantity;
     private Instant timestamp;
 
     @Override
@@ -32,23 +31,16 @@ public class PaymentInitiatedEvent implements Event {
     }
 
     @Override
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     public Instant getTimestamp() {
         return timestamp;
     }
 
-    /**
-     * Creates a PaymentInitiatedEvent from an Order entity.
-     *
-     * @param order The Order entity.
-     * @return A PaymentInitiatedEvent instance.
-     */
-    public static PaymentInitiatedEvent fromOrder(Order order) {
-        return PaymentInitiatedEvent.builder()
-                .eventType(EventType.PAYMENT_INITIATED.name())
+    public static ReserveInventoryCommand fromOrder(Order order) {
+        return ReserveInventoryCommand.builder()
+                .eventType(EventType.RESERVE_INVENTORY_COMMAND.name())
                 .orderId(order.getOrderId())
-                .amount(order.getTotalAmount().doubleValue())
-                .currency(order.getCurrency())
+                .productId(order.getItems().getFirst().getProductId())
+                .quantity(order.getItems().getFirst().getQuantity())
                 .timestamp(Instant.now())
                 .build();
     }

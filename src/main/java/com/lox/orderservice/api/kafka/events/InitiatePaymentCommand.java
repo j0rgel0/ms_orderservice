@@ -1,8 +1,7 @@
-// InventoryReservedEvent.java
 package com.lox.orderservice.api.kafka.events;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.lox.orderservice.api.models.Order;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
@@ -14,12 +13,11 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class InventoryReservedEvent implements Event {
+public class InitiatePaymentCommand implements Event {
 
     private String eventType;
     private UUID orderId;
-    private UUID productId;
-    private int quantity;
+    private BigDecimal totalAmount;
     private Instant timestamp;
 
     @Override
@@ -33,17 +31,15 @@ public class InventoryReservedEvent implements Event {
     }
 
     @Override
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     public Instant getTimestamp() {
         return timestamp;
     }
 
-    public static InventoryReservedEvent fromOrder(Order order) {
-        return InventoryReservedEvent.builder()
-                .eventType(EventType.INVENTORY_RESERVED.name())
+    public static InitiatePaymentCommand fromOrder(Order order) {
+        return InitiatePaymentCommand.builder()
+                .eventType(EventType.INITIATE_PAYMENT_COMMAND.name())
                 .orderId(order.getOrderId())
-                .productId(order.getItems().get(0).getProductId())
-                .quantity(order.getItems().get(0).getQuantity())
+                .totalAmount(order.getTotalAmount())
                 .timestamp(Instant.now())
                 .build();
     }

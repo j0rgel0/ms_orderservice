@@ -13,10 +13,11 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PaymentCancelledEvent implements Event {
+public class InventoryReserveFailedEvent implements Event {
 
     private String eventType;
     private UUID orderId;
+    private String reason;
     private Instant timestamp;
 
     @Override
@@ -35,16 +36,11 @@ public class PaymentCancelledEvent implements Event {
         return timestamp;
     }
 
-    /**
-     * Creates a PaymentCancelledEvent from an Order entity.
-     *
-     * @param order The Order entity.
-     * @return A PaymentCancelledEvent instance.
-     */
-    public static PaymentCancelledEvent fromOrder(Order order) {
-        return PaymentCancelledEvent.builder()
-                .eventType(EventType.PAYMENT_CANCELLED.name())
+    public static InventoryReserveFailedEvent fromOrder(Order order, String reason) {
+        return InventoryReserveFailedEvent.builder()
+                .eventType(EventType.INVENTORY_RESERVE_FAILED.name())
                 .orderId(order.getOrderId())
+                .reason(reason)
                 .timestamp(Instant.now())
                 .build();
     }

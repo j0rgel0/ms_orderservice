@@ -1,18 +1,20 @@
+// OrderMapper.java
 package com.lox.orderservice.api.mappers;
 
-import com.lox.orderservice.api.dto.OrderItemResponse;
-import com.lox.orderservice.api.dto.OrderResponse;
 import com.lox.orderservice.api.models.Order;
-import java.util.List;
+import com.lox.orderservice.api.models.dto.OrderResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.factory.Mappers;
 
-@Mapper(componentModel = "spring")
+@Mapper
 public interface OrderMapper {
 
-    @Mapping(target = "items", source = "items")
+    OrderMapper INSTANCE = Mappers.getMapper(OrderMapper.class);
+
+    @Mapping(source = "trackId", target = "trackId")
+    @Mapping(source = "cancellationReason", target = "cancellationReason")
     OrderResponse toOrderResponse(Order order);
 
-    List<OrderItemResponse> toOrderItemResponses(
-            List<com.lox.orderservice.api.models.OrderItem> items);
+
 }

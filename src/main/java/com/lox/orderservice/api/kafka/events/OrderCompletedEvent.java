@@ -35,12 +35,6 @@ public class OrderCompletedEvent implements Event {
         return timestamp;
     }
 
-    /**
-     * Creates an OrderCompletedEvent from an Order entity.
-     *
-     * @param order The Order entity.
-     * @return An OrderCompletedEvent instance.
-     */
     public static OrderCompletedEvent fromOrder(Order order) {
         return OrderCompletedEvent.builder()
                 .eventType(EventType.ORDER_COMPLETED.name())

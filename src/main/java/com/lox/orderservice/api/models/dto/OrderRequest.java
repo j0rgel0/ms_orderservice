@@ -1,5 +1,6 @@
-package com.lox.orderservice.api.dto;
+package com.lox.orderservice.api.models.dto;
 
+import com.lox.orderservice.api.models.dto.OrderItemRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
