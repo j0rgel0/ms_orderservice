@@ -308,45 +308,50 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private Mono<Void> handleInventoryReservedEvent(JsonNode jsonNode) {
-        log.info("Handling INVENTORY_RESERVED event"); // Info log
+        log.info("Handling INVENTORY_RESERVED event");
 
-        // 1) Extract data
+        // 1) Extract the main fields from the incoming JSON event
         UUID orderId = UUID.fromString(jsonNode.get("orderId").asText());
         UUID trackId = UUID.fromString(jsonNode.get("trackId").asText());
         double orderTotalFromEvent = jsonNode.get("orderTotal").asDouble();
 
+        // Extract the items array
         ArrayNode itemsNode = (ArrayNode) jsonNode.get("items");
         List<InventoryReservedItemPayload> reservedItems = new ArrayList<>();
+
+        // Map each item from the JSON array to a Java object
         for (JsonNode itemNode : itemsNode) {
             reservedItems.add(
                     InventoryReservedItemPayload.builder()
                             .productId(UUID.fromString(itemNode.get("productId").asText()))
                             .quantity(itemNode.get("quantity").asInt())
-                            .unitPrice(itemNode.get("unitPrice").asDouble())   // Price per unit
+                            .unitPrice(itemNode.get("unitPrice").asDouble())   // Price for one unit
                             .totalPrice(
-                                    itemNode.get("totalPrice").asDouble()) // Total price for item
+                                    itemNode.get("totalPrice").asDouble()) // unitPrice * quantity
                             .build()
             );
         }
 
-        // 2) Update order_items and the order
+        // 2) Update the order items and the order in the database
         return orderRepository.findById(orderId)
                 .switchIfEmpty(Mono.error(
                         new OrderNotFoundException("Order not found with ID: " + orderId))
                 )
                 .flatMap(order -> {
-                    // Build a Flux to update each item
+                    // Build a Flux to update each order item
                     Flux<OrderItem> updatedItemsFlux = Flux.fromIterable(reservedItems)
                             .flatMap(reservedItem ->
                                     orderItemRepository.findByOrderIdAndProductId(orderId,
                                                     reservedItem.getProductId())
-                                            .switchIfEmpty(Mono.error(new RuntimeException(
-                                                    "orderItem not found - orderId: " + orderId
-                                                            + ", productId: "
-                                                            + reservedItem.getProductId()
-                                            )))
+                                            .switchIfEmpty(Mono.error(
+                                                    new RuntimeException(
+                                                            "orderItem not found - orderId: "
+                                                                    + orderId
+                                                                    + ", productId: "
+                                                                    + reservedItem.getProductId())
+                                            ))
                                             .flatMap(orderItem -> {
-                                                // Set the total price
+                                                // Update the total price in the order item
                                                 orderItem.setPrice(BigDecimal.valueOf(
                                                         reservedItem.getTotalPrice()));
                                                 orderItem.setUpdatedAt(Instant.now());
@@ -356,21 +361,21 @@ public class OrderServiceImpl implements OrderService {
 
                     return updatedItemsFlux.collectList()
                             .flatMap(updatedItems -> {
-                                log.info("Updated items: {}",
-                                        updatedItems); // Info log for updated items
+                                log.info("Updated items: {}", updatedItems);
 
-                                // Update the order status
+                                // Update the order's status and total amount
                                 order.setStatus(OrderStatus.ORDER_RESERVED);
                                 order.setUpdatedAt(Instant.now());
                                 order.setTotalAmount(BigDecimal.valueOf(orderTotalFromEvent));
 
+                                // Persist the updated order
                                 return orderRepository.save(order)
                                         .flatMap(savedOrder -> {
                                             log.info(
                                                     "Order reserved, initiating payment command for orderId: {}",
-                                                    orderId); // Info
+                                                    orderId);
 
-                                            // 3) Emit InitiatePaymentCommand
+                                            // 3) Build and emit the InitiatePaymentCommand
                                             List<ReservedItemEvent> reservedItemEvents = reservedItems.stream()
                                                     .map(r -> ReservedItemEvent.builder()
                                                             .productId(r.getProductId())
@@ -380,28 +385,29 @@ public class OrderServiceImpl implements OrderService {
                                                             .build())
                                                     .toList();
 
-                                            InitiatePaymentCommand initiatePaymentCommand =
-                                                    InitiatePaymentCommand.builder()
-                                                            .eventType(
-                                                                    EventType.INITIATE_PAYMENT_COMMAND.name())
-                                                            .trackId(trackId)
-                                                            .orderId(orderId)
-                                                            .items(reservedItemEvents)
-                                                            .orderTotal(orderTotalFromEvent)
-                                                            .timestamp(Instant.now())
-                                                            .build();
+                                            InitiatePaymentCommand initiatePaymentCommand = InitiatePaymentCommand.builder()
+                                                    .eventType(
+                                                            EventType.INITIATE_PAYMENT_COMMAND.name())
+                                                    .trackId(trackId)
+                                                    .orderId(orderId)
+                                                    .items(reservedItemEvents)
+                                                    .orderTotal(orderTotalFromEvent)
+                                                    .timestamp(Instant.now())
+                                                    .build();
 
+                                            // Send the command to the 'payment.commands' topic
                                             return emitEvent(initiatePaymentCommand)
                                                     .doOnSuccess(aVoid ->
                                                             log.info(
                                                                     "InitiatePaymentCommand emitted for orderId: {}",
-                                                                    orderId) // Info
+                                                                    orderId)
                                                     );
                                         });
                             });
                 })
                 .then();
     }
+
 
     private Mono<Void> handleInventoryReserveFailedEvent(JsonNode jsonNode) {
         log.info("Handling INVENTORY_RESERVE_FAILED event"); // Info log
