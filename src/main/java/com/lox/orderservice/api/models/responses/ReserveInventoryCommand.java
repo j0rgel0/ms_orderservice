@@ -1,4 +1,4 @@
-package com.lox.orderservice.api.models.dto;
+package com.lox.orderservice.api.models.responses;
 
 import com.lox.orderservice.api.kafka.events.Event;
 import java.time.Instant;
@@ -10,8 +10,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Command to instruct inventory to reserve items for a given order,
- * but without 'orderTotal', 'unitPrice', or 'totalPrice'.
+ * Command to instruct inventory to reserve items for a given order, but without 'orderTotal',
+ * 'unitPrice', or 'totalPrice'.
  */
 @Data
 @Builder

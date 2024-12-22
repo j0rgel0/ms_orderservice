@@ -1,4 +1,4 @@
-package com.lox.orderservice.api.models;
+package com.lox.orderservice.api.models.enums;
 
 public enum OrderStatus {
     ORDER_CREATED,

@@ -1,4 +1,4 @@
-package com.lox.orderservice.api.models.dto;
+package com.lox.orderservice.api.models.responses;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnore;

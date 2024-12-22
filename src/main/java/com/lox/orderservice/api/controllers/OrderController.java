@@ -1,8 +1,8 @@
 package com.lox.orderservice.api.controllers;
 
-import com.lox.orderservice.api.models.dto.OrderRequest;
-import com.lox.orderservice.api.models.dto.OrderResponse;
-import com.lox.orderservice.api.models.OrderPage;
+import com.lox.orderservice.api.models.requests.OrderRequest;
+import com.lox.orderservice.api.models.responses.OrderResponse;
+import com.lox.orderservice.api.models.page.OrderPage;
 import com.lox.orderservice.api.services.OrderService;
 import jakarta.validation.Valid;
 import java.time.Instant;

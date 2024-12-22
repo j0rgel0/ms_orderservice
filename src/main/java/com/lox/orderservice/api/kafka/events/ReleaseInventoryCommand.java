@@ -1,8 +1,7 @@
 package com.lox.orderservice.api.kafka.events;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import com.lox.orderservice.api.models.Order;
-import com.lox.orderservice.api.models.dto.ReservedItemEvent;
+import com.lox.orderservice.api.models.responses.ReservedItemEvent;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;

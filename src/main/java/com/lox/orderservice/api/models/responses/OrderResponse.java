@@ -1,8 +1,6 @@
-package com.lox.orderservice.api.models.dto;
+package com.lox.orderservice.api.models.responses;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;

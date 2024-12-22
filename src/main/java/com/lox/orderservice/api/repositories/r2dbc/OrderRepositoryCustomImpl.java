@@ -1,6 +1,7 @@
 package com.lox.orderservice.api.repositories.r2dbc;
 
 import com.lox.orderservice.api.models.Order;
+import com.lox.orderservice.api.models.enums.OrderStatus;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -54,7 +55,7 @@ public class OrderRepositoryCustomImpl implements OrderRepositoryCustom {
                     order.setUserId(row.get("user_id", UUID.class));
                     order.setTotalAmount(row.get("total_amount", java.math.BigDecimal.class));
                     order.setCurrency(row.get("currency", String.class));
-                    order.setStatus(com.lox.orderservice.api.models.OrderStatus.valueOf(
+                    order.setStatus(OrderStatus.valueOf(
                             row.get("status", String.class)));
                     order.setCreatedAt(row.get("created_at", Instant.class));
                     order.setUpdatedAt(row.get("updated_at", Instant.class));

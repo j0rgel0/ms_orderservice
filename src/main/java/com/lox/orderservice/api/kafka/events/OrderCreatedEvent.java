@@ -2,7 +2,6 @@ package com.lox.orderservice.api.kafka.events;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.lox.orderservice.api.models.OrderItem;
-import com.lox.orderservice.api.models.dto.OrderItemResponse;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;

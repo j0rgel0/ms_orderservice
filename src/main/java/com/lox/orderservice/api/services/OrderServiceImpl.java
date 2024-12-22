@@ -16,11 +16,11 @@ import com.lox.orderservice.api.kafka.topics.KafkaTopics;
 import com.lox.orderservice.api.mappers.OrderMapper;
 import com.lox.orderservice.api.models.Order;
 import com.lox.orderservice.api.models.OrderItem;
-import com.lox.orderservice.api.models.OrderPage;
-import com.lox.orderservice.api.models.OrderStatus;
-import com.lox.orderservice.api.models.dto.OrderRequest;
-import com.lox.orderservice.api.models.dto.OrderResponse;
-import com.lox.orderservice.api.models.dto.ReservedItemEvent;
+import com.lox.orderservice.api.models.enums.OrderStatus;
+import com.lox.orderservice.api.models.page.OrderPage;
+import com.lox.orderservice.api.models.requests.OrderRequest;
+import com.lox.orderservice.api.models.responses.OrderResponse;
+import com.lox.orderservice.api.models.responses.ReservedItemEvent;
 import com.lox.orderservice.api.repositories.r2dbc.OrderItemRepository;
 import com.lox.orderservice.api.repositories.r2dbc.OrderRepository;
 import java.math.BigDecimal;
@@ -242,8 +242,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * DELETE ORDER - ORDER_REMOVED_NOTIFICATION -> notification.events - ORDER_REMOVED_STATUS
-     * -> order.status.events
+     * DELETE ORDER - ORDER_REMOVED_NOTIFICATION -> notification.events - ORDER_REMOVED_STATUS ->
+     * order.status.events
      */
     @Override
     @Transactional

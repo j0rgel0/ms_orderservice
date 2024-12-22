@@ -1,7 +1,5 @@
-package com.lox.orderservice.api.models.dto;
+package com.lox.orderservice.api.models.responses;
 
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotNull;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,11 +10,9 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class OrderItemRequest {
+public class OrderItemResponse {
 
-    @NotNull
+    private UUID orderItemId;
     private UUID productId;
-
-    @Min(1)
     private int quantity;
 }

@@ -1,4 +1,4 @@
-package com.lox.orderservice.api.models;
+package com.lox.orderservice.api.models.enums;
 
 public enum CancellationReason {
     INVENTORY_SERVICE_NO_STOCK,          // Because some products were unavailable

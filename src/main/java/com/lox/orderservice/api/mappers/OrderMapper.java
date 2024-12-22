@@ -2,7 +2,7 @@
 package com.lox.orderservice.api.mappers;
 
 import com.lox.orderservice.api.models.Order;
-import com.lox.orderservice.api.models.dto.OrderResponse;
+import com.lox.orderservice.api.models.responses.OrderResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.factory.Mappers;
