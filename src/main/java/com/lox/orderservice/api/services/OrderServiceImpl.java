@@ -1,12 +1,15 @@
 package com.lox.orderservice.api.services;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.lox.orderservice.api.exceptions.InvalidOrderStatusException;
+import com.lox.orderservice.api.exceptions.OrderItemNotFoundException;
 import com.lox.orderservice.api.exceptions.OrderNotFoundException;
 import com.lox.orderservice.api.kafka.events.Event;
 import com.lox.orderservice.api.kafka.events.EventType;
 import com.lox.orderservice.api.kafka.events.InitiatePaymentCommand;
+import com.lox.orderservice.api.kafka.events.InventoryReservedEvent;
 import com.lox.orderservice.api.kafka.events.OrderCancelledEvent;
 import com.lox.orderservice.api.kafka.events.OrderCreatedEvent;
 import com.lox.orderservice.api.kafka.events.OrderRemovedEvent;
@@ -20,6 +23,7 @@ import com.lox.orderservice.api.models.enums.OrderStatus;
 import com.lox.orderservice.api.models.page.OrderPage;
 import com.lox.orderservice.api.models.requests.OrderRequest;
 import com.lox.orderservice.api.models.responses.OrderResponse;
+import com.lox.orderservice.api.models.responses.ReasonDetail;
 import com.lox.orderservice.api.models.responses.ReservedItemEvent;
 import com.lox.orderservice.api.repositories.r2dbc.OrderItemRepository;
 import com.lox.orderservice.api.repositories.r2dbc.OrderRepository;
@@ -44,11 +48,49 @@ import reactor.kafka.sender.SenderRecord;
 @Slf4j
 public class OrderServiceImpl implements OrderService {
 
+    // ==============
+    // Repositories
+    // ==============
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+
+    // ==============
+    // Kafka / Mappers
+    // ==============
     private final KafkaSender<String, Object> kafkaSender;
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final OrderMapper orderMapper = Mappers.getMapper(OrderMapper.class);
+
+    // =======================================
+    // 1) Spring-injected default ObjectMapper
+    //    (includes JavaTimeModule by default,
+    //     provided you have jackson-datatype-jsr310)
+    // =======================================
+    private final ObjectMapper defaultObjectMapper;
+
+    // =======================================
+    // 2) An optional specialized local mapper
+    //    if you need different settings
+    // =======================================
+    private final ObjectMapper specializedObjectMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .configure(
+                    com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
+                    false); // Optional: Ignore unknown properties
+
+//    /**
+//     * Initialization method to verify ObjectMapper configurations.
+//     */
+//    @PostConstruct
+//    public void init() {
+//        // Verify defaultObjectMapper modules
+//        defaultObjectMapper.getRegisteredModules().forEach(module ->
+//                log.info("Default ObjectMapper Registered Module: {}", module.getModuleName()));
+//
+//        // Verify specializedObjectMapper modules
+//        specializedObjectMapper.getRegisteredModules().forEach(module ->
+//                log.info("Specialized ObjectMapper Registered Module: {}", module.getModuleName()));
+//    }
 
     /**
      * CREATE ORDER Emits: - ORDER_CREATED_NOTIFICATION -> notification.events -
@@ -73,7 +115,7 @@ public class OrderServiceImpl implements OrderService {
                         .createdAt(Instant.now())
                         .updatedAt(Instant.now())
                         .build())
-                .toList();
+                .collect(Collectors.toList());
 
         // Construct the Order entity
         Order order = Order.builder()
@@ -107,8 +149,7 @@ public class OrderServiceImpl implements OrderService {
                                 createdNotification.setOrderId(savedOrder.getOrderId());
                                 createdNotification.setUserId(savedOrder.getUserId());
                                 createdNotification.setCurrency(savedOrder.getCurrency());
-                                createdNotification.setStatus(
-                                        String.valueOf(savedOrder.getStatus()));
+                                createdNotification.setStatus(savedOrder.getStatus().name());
                                 createdNotification.setCreatedAt(savedOrder.getCreatedAt());
                                 createdNotification.setUpdatedAt(savedOrder.getUpdatedAt());
                                 createdNotification.setItems(
@@ -122,14 +163,13 @@ public class OrderServiceImpl implements OrderService {
                                 createdStatus.setOrderId(savedOrder.getOrderId());
                                 createdStatus.setUserId(savedOrder.getUserId());
                                 createdStatus.setCurrency(savedOrder.getCurrency());
-                                createdStatus.setStatus(String.valueOf(savedOrder.getStatus()));
+                                createdStatus.setStatus(savedOrder.getStatus().name());
                                 createdStatus.setCreatedAt(savedOrder.getCreatedAt());
                                 createdStatus.setUpdatedAt(savedOrder.getUpdatedAt());
                                 createdStatus.setItems(savedOrder.getItems());
                                 createdStatus.setTimestamp(Instant.now());
 
                                 // 3) Build RESERVE_INVENTORY_COMMAND
-                                // Map OrderItems -> ReservedItemEvent
                                 List<ReservedItemEvent> reservedItemEvents = savedItems.stream()
                                         .map(oi -> ReservedItemEvent.builder()
                                                 .productId(oi.getProductId())
@@ -145,6 +185,7 @@ public class OrderServiceImpl implements OrderService {
                                 reserveCmd.setItems(reservedItemEvents);
                                 reserveCmd.setTimestamp(Instant.now());
 
+                                // Emit the events
                                 return emitEvents(createdNotification, createdStatus, reserveCmd)
                                         .then(Mono.fromSupplier(() -> {
                                             // Build final OrderResponse
@@ -162,7 +203,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * GET ORDER BY ID - No messages emitted.
+     * GET ORDER BY ID No messages emitted
      */
     @Override
     public Mono<OrderResponse> getOrderById(UUID orderId) {
@@ -182,8 +223,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * UPDATE ORDER STATUS - ORDER_UPDATED_NOTIFICATION -> notification.events -
-     * ORDER_UPDATED_STATUS       -> order.status.events - if cancelled => ORDER_CANCELLED_STATUS ->
+     * UPDATE ORDER STATUS Emits: - ORDER_UPDATED_NOTIFICATION -> notification.events -
+     * ORDER_UPDATED_STATUS       -> order.status.events - If cancelled => ORDER_CANCELLED_STATUS ->
      * order.status.events
      */
     @Override
@@ -242,8 +283,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * DELETE ORDER - ORDER_REMOVED_NOTIFICATION -> notification.events - ORDER_REMOVED_STATUS ->
-     * order.status.events
+     * DELETE ORDER Emits: - ORDER_REMOVED_NOTIFICATION -> notification.events -
+     * ORDER_REMOVED_STATUS       -> order.status.events
      */
     @Override
     @Transactional
@@ -278,13 +319,14 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * LIST ORDERS - No events emitted.
+     * LIST ORDERS No events emitted
      */
     @Override
     public Mono<OrderPage> listOrders(String status, UUID userId, Instant startDate,
             Instant endDate, int page, int size) {
         log.info("Listing orders, status={}, userId={}, startDate={}, endDate={}, page={}, size={}",
                 status, userId, startDate, endDate, page, size);
+
         PageRequest pageRequest = PageRequest.of(page, size);
 
         return orderRepository.findByStatusAndUserIdAndCreatedAtBetween(
@@ -314,69 +356,131 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * HANDLE ORDER STATUS EVENT - Possibly emit RESERVE_INVENTORY_COMMAND or
+     * HANDLE ORDER STATUS EVENT Possibly emit RESERVE_INVENTORY_COMMAND or
      * INITIATE_PAYMENT_COMMAND
      */
     @Override
     @Transactional
     public Mono<Void> handleOrderStatusEvent(String eventPayload) {
         log.info("Handling order status event, payload={}", eventPayload);
+
         try {
-            JsonNode json = objectMapper.readTree(eventPayload);
-            String eventType = json.get("eventType").asText();
+            // Use the "defaultObjectMapper" that Spring auto-configured
+            // (which should have JavaTimeModule for `Instant`)
+            InventoryReservedEvent event = defaultObjectMapper.readValue(eventPayload,
+                    InventoryReservedEvent.class);
+            String eventType = event.getEventType();
             log.info("Parsed eventType={}", eventType);
 
-            // Just an example
-            switch (eventType) {
-                case "TRIGGER_RESERVE":
-                    return emitEvent(buildReserveInventoryCommand(json));
-                case "TRIGGER_PAYMENT":
-                    return emitEvent(buildInitiatePaymentCommand(json));
-                default:
+            return switch (eventType) {
+                case "INVENTORY_RESERVED" -> handleInventoryReservedEvent(event);
+                default -> {
                     log.debug("No matching event type found, ignoring");
-                    return Mono.empty();
-            }
+                    yield Mono.empty();
+                }
+            };
+        } catch (com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException e) {
+            log.error("Received event with unrecognized properties: {}", e.getMessage());
+            return Mono.error(
+                    new RuntimeException("Invalid event payload: Unrecognized properties", e));
         } catch (Exception e) {
-            log.error("Invalid event payload", e);
+            log.error("Error handling order status event", e);
             return Mono.error(new RuntimeException("Invalid event payload", e));
         }
     }
 
-    private ReserveInventoryCommand buildReserveInventoryCommand(JsonNode json) {
-        ReserveInventoryCommand cmd = new ReserveInventoryCommand();
-        cmd.setEventType(EventType.RESERVE_INVENTORY_COMMAND.name());
-        cmd.setTimestamp(Instant.now());
-        if (json.has("trackId")) {
-            cmd.setTrackId(UUID.fromString(json.get("trackId").asText()));
-        }
-        if (json.has("orderId")) {
-            cmd.setOrderId(UUID.fromString(json.get("orderId").asText()));
-        }
-        // If "items" is present, parse them into List<ReservedItemEvent>:
-        // ...
-        return cmd;
+    private Mono<Void> handleInventoryReservedEvent(InventoryReservedEvent event) {
+        log.info("Handling INVENTORY_RESERVED event for orderId={}", event.getOrderId());
+
+        UUID orderId = event.getOrderId();
+        BigDecimal orderTotal = event.getOrderTotal();
+        List<InventoryReservedEvent.Item> items = event.getItems();
+        List<ReasonDetail> reasons = event.getReasons(); // Access the new field if needed
+
+        return orderRepository.findById(orderId)
+                .switchIfEmpty(
+                        Mono.error(new OrderNotFoundException("Order not found, id=" + orderId)))
+                .flatMap(order -> updateOrderAndItems(order, items, orderTotal, reasons))
+                .flatMap(this::emitInitiatePaymentCommand)
+                .then()
+                .doOnSuccess(v ->
+                        log.info("Successfully processed INVENTORY_RESERVED event for orderId={}",
+                                orderId)
+                )
+                .doOnError(e ->
+                        log.error("Error processing INVENTORY_RESERVED event for orderId={}",
+                                orderId, e)
+                );
     }
 
-    private InitiatePaymentCommand buildInitiatePaymentCommand(JsonNode json) {
-        InitiatePaymentCommand cmd = new InitiatePaymentCommand();
-        cmd.setEventType(EventType.INITIATE_PAYMENT_COMMAND.name());
-        cmd.setTimestamp(Instant.now());
-        if (json.has("trackId")) {
-            cmd.setTrackId(UUID.fromString(json.get("trackId").asText()));
+    private Mono<Order> updateOrderAndItems(Order order, List<InventoryReservedEvent.Item> items,
+            BigDecimal orderTotal, List<ReasonDetail> reasons) {
+        order.setTotalAmount(orderTotal);
+        order.setStatus(OrderStatus.ORDER_RESERVED);
+        order.setUpdatedAt(Instant.now());
+
+        // Optionally handle reasons if they affect the order
+        if (reasons != null && !reasons.isEmpty()) {
+            // Example: Log reasons or update order with reason details
+            reasons.forEach(reason ->
+                    log.info("Reason for reservation: ProductID={}, ProductName={}, Message={}",
+                            reason.getProductId(), reason.getProductName(), reason.getMessage()));
+            // You can also store reasons in the order if your Order model supports it
+            // e.g., order.setReasons(reasons);
         }
-        if (json.has("orderId")) {
-            cmd.setOrderId(UUID.fromString(json.get("orderId").asText()));
-        }
-        return cmd;
+
+        Mono<Order> saveOrderMono = orderRepository.save(order);
+
+        // Update each OrderItem with new prices
+        List<Mono<OrderItem>> updateItemMonos = items.stream()
+                .map(item -> orderItemRepository.findByOrderIdAndProductId(order.getOrderId(),
+                                item.getProductId())
+                        .switchIfEmpty(Mono.error(new OrderItemNotFoundException(
+                                "OrderItem not found for productId=" + item.getProductId())))
+                        .flatMap(orderItem -> {
+                            orderItem.setPrice(item.getUnitPrice());
+                            orderItem.setUpdatedAt(Instant.now());
+                            return orderItemRepository.save(orderItem);
+                        }))
+                .collect(Collectors.toList());
+
+        return Flux.merge(updateItemMonos)
+                .then(saveOrderMono)
+                .doOnNext(updatedOrder -> log.debug(
+                        "Updated orderId={} with new totalAmount={}",
+                        updatedOrder.getOrderId(),
+                        updatedOrder.getTotalAmount()
+                ));
     }
 
-    // ==================================
+    private Mono<Order> emitInitiatePaymentCommand(Order order) {
+        InitiatePaymentCommand paymentCommand = InitiatePaymentCommand.builder()
+                .eventType("INITIATE_PAYMENT_COMMAND")
+                .trackId(order.getTrackId())
+                .orderId(order.getOrderId())
+                .userId(order.getUserId())
+                .totalAmount(order.getTotalAmount())
+                .currency(order.getCurrency())
+                .status(order.getStatus().name())
+                .createdAt(order.getCreatedAt())
+                .updatedAt(order.getUpdatedAt())
+                .items(order.getItems().stream()
+                        .map(oi -> InitiatePaymentCommand.OrderItemEvent.builder()
+                                .productId(oi.getProductId())
+                                .quantity(oi.getQuantity())
+                                .build())
+                        .collect(Collectors.toList()))
+                .timestamp(Instant.now())
+                .build();
+
+        return emitEvent(paymentCommand).thenReturn(order);
+    }
+
+    // ====================================================
     // GENERIC EVENT EMISSION
-    // ==================================
+    // ====================================================
     private Mono<Void> emitEvents(Event... events) {
-        return Flux.fromArray(events)
-                .flatMap(this::emitEvent)
-                .then();
+        return Flux.fromArray(events).flatMap(this::emitEvent).then();
     }
 
     private Mono<Void> emitEvent(Event event) {

@@ -13,9 +13,10 @@ import reactor.core.publisher.Mono;
 public interface OrderRepository extends ReactiveCrudRepository<Order, UUID>,
         OrderRepositoryCustom {
 
-    Flux<Order> findByStatusAndUserIdAndCreatedAtBetween(String status, UUID userId, Instant startDate, Instant endDate, Pageable pageable);
-    Mono<Long> countByStatusAndUserIdAndCreatedAtBetween(String status, UUID userId, Instant startDate, Instant endDate);
+    Flux<Order> findByStatusAndUserIdAndCreatedAtBetween(String status, UUID userId,
+            Instant startDate, Instant endDate, Pageable pageable);
 
-
+    Mono<Long> countByStatusAndUserIdAndCreatedAtBetween(String status, UUID userId,
+            Instant startDate, Instant endDate);
 
 }

@@ -25,9 +25,7 @@ public class InitiatePaymentCommand implements Event {
     private String status;
     private Instant createdAt;
     private Instant updatedAt;
-
     private List<OrderItemEvent> items;
-    private String cancellationReason;
 
     @Override
     public String getEventType() {
@@ -50,6 +48,7 @@ public class InitiatePaymentCommand implements Event {
     @Data
     @AllArgsConstructor
     @NoArgsConstructor
+    @Builder
     public static class OrderItemEvent {
 
         private UUID productId;
