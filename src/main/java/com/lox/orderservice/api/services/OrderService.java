@@ -20,4 +20,6 @@ public interface OrderService {
             java.time.Instant endDate, int page, int size);
 
     Mono<Void> handleOrderStatusEvent(String eventPayload);
+
+    Mono<Void> handlePaymentStatusEvent(String eventPayload);
 }

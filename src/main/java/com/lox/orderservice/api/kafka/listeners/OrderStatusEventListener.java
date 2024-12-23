@@ -16,8 +16,26 @@ public class OrderStatusEventListener {
 
     @KafkaListener(topics = "inventory.status.events", groupId = "order-service-group")
     public void listenInventoryEvents(String message) {
-        log.info("inventory.events - Received inventory event: {}", message);
+        log.info("listenInventoryEvents() -> Received from inventory.status.events: {}", message);
         Mono<Void> result = orderService.handleOrderStatusEvent(message);
-        result.subscribe();
+        result.subscribe(
+                v -> log.info("Successfully processed inventory status event: {}", message),
+                e -> log.error("Error processing inventory status event: {}, error: {}", message,
+                        e.getMessage())
+        );
+    }
+
+
+    @KafkaListener(topics = "payment.status.events", groupId = "order-service-group")
+    public void listenPaymentEvents(String message) {
+        log.info("listenPaymentEvents() -> Received from payment.status.events: {}", message);
+        Mono<Void> result = orderService.handlePaymentStatusEvent(message);
+        result.subscribe(
+                v -> log.info("listenPaymentEvents() -> Successfully processed payment event: {}",
+                        message),
+                e -> log.error(
+                        "listenPaymentEvents() -> Error processing payment event: {}, error: {}",
+                        message, e.getMessage())
+        );
     }
 }

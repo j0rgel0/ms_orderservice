@@ -18,5 +18,6 @@ public interface OrderRepository extends ReactiveCrudRepository<Order, UUID>,
 
     Mono<Long> countByStatusAndUserIdAndCreatedAtBetween(String status, UUID userId,
             Instant startDate, Instant endDate);
+    Mono<Order> findByTrackId(UUID trackId);
 
 }

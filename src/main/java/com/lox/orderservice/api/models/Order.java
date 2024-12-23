@@ -2,7 +2,6 @@ package com.lox.orderservice.api.models;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.lox.orderservice.api.models.enums.CancellationReason;
 import com.lox.orderservice.api.models.enums.OrderStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
