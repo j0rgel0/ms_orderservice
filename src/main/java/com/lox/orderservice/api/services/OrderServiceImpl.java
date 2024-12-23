@@ -365,17 +365,23 @@ public class OrderServiceImpl implements OrderService {
         log.info("Handling order status event, payload={}", eventPayload);
 
         try {
-            // Use the "defaultObjectMapper" that Spring auto-configured
-            // (which should have JavaTimeModule for `Instant`)
             InventoryReservedEvent event = defaultObjectMapper.readValue(eventPayload,
                     InventoryReservedEvent.class);
             String eventType = event.getEventType();
             log.info("Parsed eventType={}", eventType);
 
+            // Process based on event type
             return switch (eventType) {
-                case "INVENTORY_RESERVED" -> handleInventoryReservedEvent(event);
+                case "INVENTORY_RESERVED" -> {
+                    log.info(
+                            "EventType = INVENTORY_RESERVED; will update Order and OrderItems, then emit INITIATE_PAYMENT_COMMAND.");
+                    yield handleInventoryReservedEvent(event);
+                }
                 default -> {
-                    log.debug("No matching event type found, ignoring");
+                    // Add a clear log so we know we're NOT handling this event
+                    log.info(
+                            "No changes performed because eventType={} is not handled in OrderServiceImpl.",
+                            eventType);
                     yield Mono.empty();
                 }
             };
@@ -389,71 +395,115 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private Mono<Void> handleInventoryReservedEvent(InventoryReservedEvent event) {
-        log.info("Handling INVENTORY_RESERVED event for orderId={}", event.getOrderId());
 
+    public Mono<Void> handleInventoryReservedEvent(InventoryReservedEvent event) {
         UUID orderId = event.getOrderId();
         BigDecimal orderTotal = event.getOrderTotal();
         List<InventoryReservedEvent.Item> items = event.getItems();
-        List<ReasonDetail> reasons = event.getReasons(); // Access the new field if needed
 
         return orderRepository.findById(orderId)
                 .switchIfEmpty(
                         Mono.error(new OrderNotFoundException("Order not found, id=" + orderId)))
-                .flatMap(order -> updateOrderAndItems(order, items, orderTotal, reasons))
+                // 1) Update the existing Order fields
+                .flatMap(existingOrder -> {
+                    existingOrder.setStatus(OrderStatus.ORDER_RESERVED);
+                    existingOrder.setTotalAmount(orderTotal);
+                    existingOrder.setUpdatedAt(Instant.now());
+                    return orderRepository.save(existingOrder);
+                })
+                // 2) Update each existing OrderItem
+                .flatMapMany(updatedOrder -> {
+                    List<Mono<OrderItem>> updateItemMonos = items.stream()
+                            .map(item -> orderItemRepository.findByOrderIdAndProductId(
+                                            updatedOrder.getOrderId(), item.getProductId())
+                                    .switchIfEmpty(Mono.error(new OrderItemNotFoundException(
+                                            "OrderItem not found for productId="
+                                                    + item.getProductId())))
+                                    .flatMap(existingItem -> {
+                                        existingItem.setPrice(item.getUnitPrice());
+                                        existingItem.setUpdatedAt(Instant.now());
+                                        // This will do an UPDATE, not an INSERT, because the ID is the same
+                                        return orderItemRepository.save(existingItem);
+                                    })
+                            )
+                            .toList();
+
+                    // Merge them so all updates happen in parallel
+                    return Flux.merge(updateItemMonos).then(Mono.just(updatedOrder));
+                })
+                // 3) (Optional) Reload Items from DB if you need them for the next step
+                .flatMap(updatedOrder ->
+                        orderItemRepository.findByOrderId(updatedOrder.getOrderId())
+                                .collectList()
+                                .map(dbItems -> {
+                                    updatedOrder.setItems(dbItems); // attach the items
+                                    return updatedOrder;
+                                })
+                )
+                // 4) Now that we have an updated Order & Items in memory, we can emit the next event
                 .flatMap(this::emitInitiatePaymentCommand)
                 .then()
-                .doOnSuccess(v ->
-                        log.info("Successfully processed INVENTORY_RESERVED event for orderId={}",
-                                orderId)
-                )
-                .doOnError(e ->
-                        log.error("Error processing INVENTORY_RESERVED event for orderId={}",
-                                orderId, e)
-                );
+                .doOnSuccess(
+                        ignored -> log.info("Order and items updated successfully for orderId={}",
+                                orderId))
+                .doOnError(e -> log.error("Error updating order/items for orderId={}", orderId, e));
     }
 
-    private Mono<Order> updateOrderAndItems(Order order, List<InventoryReservedEvent.Item> items,
-            BigDecimal orderTotal, List<ReasonDetail> reasons) {
-        order.setTotalAmount(orderTotal);
+
+    private Mono<Order> updateOrderAndItems(
+            Order order,
+            List<InventoryReservedEvent.Item> items,
+            BigDecimal orderTotal,
+            List<ReasonDetail> reasons
+    ) {
+        // 1) Update the Order
         order.setStatus(OrderStatus.ORDER_RESERVED);
+        order.setTotalAmount(orderTotal);
         order.setUpdatedAt(Instant.now());
 
-        // Optionally handle reasons if they affect the order
         if (reasons != null && !reasons.isEmpty()) {
-            // Example: Log reasons or update order with reason details
-            reasons.forEach(reason ->
-                    log.info("Reason for reservation: ProductID={}, ProductName={}, Message={}",
-                            reason.getProductId(), reason.getProductName(), reason.getMessage()));
-            // You can also store reasons in the order if your Order model supports it
-            // e.g., order.setReasons(reasons);
+            reasons.forEach(reason -> log.info("Reason for reservation: {}", reason));
         }
 
         Mono<Order> saveOrderMono = orderRepository.save(order);
 
-        // Update each OrderItem with new prices
+        // 2) Update each OrderItem in parallel
         List<Mono<OrderItem>> updateItemMonos = items.stream()
                 .map(item -> orderItemRepository.findByOrderIdAndProductId(order.getOrderId(),
                                 item.getProductId())
-                        .switchIfEmpty(Mono.error(new OrderItemNotFoundException(
-                                "OrderItem not found for productId=" + item.getProductId())))
+                        .switchIfEmpty(Mono.error(
+                                new OrderItemNotFoundException("OrderItem not found for productId="
+                                        + item.getProductId())))
                         .flatMap(orderItem -> {
                             orderItem.setPrice(item.getUnitPrice());
                             orderItem.setUpdatedAt(Instant.now());
                             return orderItemRepository.save(orderItem);
-                        }))
-                .collect(Collectors.toList());
+                        })
+                )
+                .toList();
 
+        // 3) Perform all item updates, then save the order
         return Flux.merge(updateItemMonos)
                 .then(saveOrderMono)
-                .doOnNext(updatedOrder -> log.debug(
-                        "Updated orderId={} with new totalAmount={}",
+                .doOnNext(updatedOrder -> log.info(
+                        "Updated orderId={} with new status={}, new totalAmount={}",
                         updatedOrder.getOrderId(),
+                        updatedOrder.getStatus(),
                         updatedOrder.getTotalAmount()
                 ));
     }
 
     private Mono<Order> emitInitiatePaymentCommand(Order order) {
+        // For safety, let's log how many items we have
+        if (order.getItems() == null) {
+            log.warn("emitInitiatePaymentCommand: order.getItems() is null for orderId={}",
+                    order.getOrderId());
+        } else {
+            log.info("emitInitiatePaymentCommand: found {} items for orderId={}",
+                    order.getItems().size(), order.getOrderId());
+        }
+
+        // Build command
         InitiatePaymentCommand paymentCommand = InitiatePaymentCommand.builder()
                 .eventType("INITIATE_PAYMENT_COMMAND")
                 .trackId(order.getTrackId())
@@ -464,15 +514,16 @@ public class OrderServiceImpl implements OrderService {
                 .status(order.getStatus().name())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
-                .items(order.getItems().stream()
+                .items(order.getItems().stream() // <-- will fail if order.getItems() == null
                         .map(oi -> InitiatePaymentCommand.OrderItemEvent.builder()
                                 .productId(oi.getProductId())
                                 .quantity(oi.getQuantity())
                                 .build())
-                        .collect(Collectors.toList()))
+                        .toList())
                 .timestamp(Instant.now())
                 .build();
 
+        // Emit event
         return emitEvent(paymentCommand).thenReturn(order);
     }
 

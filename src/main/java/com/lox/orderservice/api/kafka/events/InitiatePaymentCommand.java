@@ -23,8 +23,13 @@ public class InitiatePaymentCommand implements Event {
     private BigDecimal totalAmount;
     private String currency;
     private String status;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     private Instant createdAt;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timezone = "UTC")
     private Instant updatedAt;
+
     private List<OrderItemEvent> items;
 
     @Override
