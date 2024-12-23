@@ -1,22 +1,21 @@
 package com.lox.orderservice.api.models.responses;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.UUID;
+import lombok.Data;
 
 @Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-@JsonDeserialize(builder = ReasonDetail.ReasonDetailBuilder.class) // Add this annotation
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class ReasonDetail {
-    private UUID productId;
-    private String productName;
-    private String message;
 
-    // Ensure the builder class is public and properly annotated if needed
+    @JsonProperty("productId")
+    private UUID productId;
+
+    @JsonProperty("productName")
+    private String productName;
+
+    @JsonProperty("message")
+    private String message;
 }
+

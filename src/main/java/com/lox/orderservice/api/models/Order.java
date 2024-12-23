@@ -46,7 +46,7 @@ public class Order {
 
     @Column("cancellation_reason")
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    private CancellationReason cancellationReason;
+    private String cancellationReason;
 
     @Column("created_at")
     private Instant createdAt;
