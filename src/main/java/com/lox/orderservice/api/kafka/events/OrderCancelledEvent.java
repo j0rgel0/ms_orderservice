@@ -1,7 +1,6 @@
 package com.lox.orderservice.api.kafka.events;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import com.lox.orderservice.api.models.Order;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
